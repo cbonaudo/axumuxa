@@ -1,9 +1,11 @@
 use std::task::{Context, Poll};
 
-use axum::body::Body;
+use axum::body::{Body, BoxBody};
 use chrono::Local;
 use colored::Colorize;
-use http::Request;
+use http::{Request, Response};
+use pin_project::pin_project;
+use std::{future::Future, pin::Pin};
 use tower::{Layer, Service};
 
 #[derive(Clone)]
@@ -24,11 +26,11 @@ pub struct LogService<S> {
 
 impl<S> Service<Request<Body>> for LogService<S>
 where
-    S: Service<Request<Body>>,
+    S: Service<Request<Body>, Response = Response<BoxBody>>,
 {
-    type Response = S::Response;
+    type Response = Response<BoxBody>;
     type Error = S::Error;
-    type Future = S::Future;
+    type Future = ResponseFuture<S::Future>;
 
     fn poll_ready(&mut self, cx: &mut Context<'_>) -> Poll<Result<(), Self::Error>> {
         self.service.poll_ready(cx)
@@ -36,9 +38,44 @@ where
 
     fn call(&mut self, request: http::Request<Body>) -> Self::Future {
         // println!("request = {:?}", request);
+
         print!("{} - ", Local::now().format("%Y-%m-%d %H:%M:%S"));
         print!("{}: {} - ", "Method".blue(), request.method());
-        println!("{}: {} ", "Route".green(), request.uri());
-        self.service.call(request)
+        print!("{}: '{}' ", "Route".green(), request.uri());
+
+        let response_future = self.service.call(request);
+
+        ResponseFuture { response_future }
+    }
+}
+
+#[pin_project]
+pub struct ResponseFuture<F> {
+    #[pin]
+    response_future: F,
+}
+
+impl<F, Error> Future for ResponseFuture<F>
+where
+    F: Future<Output = Result<Response<BoxBody>, Error>>,
+{
+    type Output = Result<Response<BoxBody>, Error>;
+
+    fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        let this = self.project();
+
+        match this.response_future.poll(cx) {
+            Poll::Ready(result) => {
+                if let Ok(response) = result {
+                    println!("{}: {} ", "Status".purple(), response.status());
+                    return Poll::Ready(Ok(response));
+                } else {
+                    println!("Nope")
+                }
+
+                Poll::Ready(result)
+            }
+            Poll::Pending => Poll::Pending,
+        }
     }
 }

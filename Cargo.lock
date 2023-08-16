@@ -115,6 +115,7 @@ dependencies = [
  "chrono",
  "colored",
  "http",
+ "pin-project",
  "tokio",
  "tower",
  "tower-http",
