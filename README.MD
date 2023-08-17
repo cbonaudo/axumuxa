@@ -1,0 +1,1 @@
+RUST_LOG=tower_http=trace cargo watch -x "run"

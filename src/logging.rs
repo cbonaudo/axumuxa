@@ -3,7 +3,7 @@ use std::task::{Context, Poll};
 use axum::body::{Body, BoxBody};
 use chrono::Local;
 use colored::Colorize;
-use http::{Request, Response};
+use http::{Request, Response, Method, Uri};
 use pin_project::pin_project;
 use std::{future::Future, pin::Pin};
 use tower::{Layer, Service};
@@ -37,15 +37,12 @@ where
     }
 
     fn call(&mut self, request: http::Request<Body>) -> Self::Future {
-        // println!("request = {:?}", request);
-
-        print!("{} - ", Local::now().format("%Y-%m-%d %H:%M:%S"));
-        print!("{}: {} - ", "Method".blue(), request.method());
-        print!("{}: '{}' ", "Route".green(), request.uri());
+        let method = request.method().clone();
+        let uri = request.uri().clone();
 
         let response_future = self.service.call(request);
 
-        ResponseFuture { response_future }
+        ResponseFuture { response_future, method, uri }
     }
 }
 
@@ -53,6 +50,8 @@ where
 pub struct ResponseFuture<F> {
     #[pin]
     response_future: F,
+    uri: Uri,
+    method: Method,
 }
 
 impl<F, Error> Future for ResponseFuture<F>
@@ -67,7 +66,11 @@ where
         match this.response_future.poll(cx) {
             Poll::Ready(result) => {
                 if let Ok(response) = result {
+                    print!("{} - ", Local::now().format("%Y-%m-%d %H:%M:%S"));
+                    print!("{}: {} - ", "Method".blue(), this.method);
+                    print!("{}: '{}' ", "Route".green(), this.uri);
                     println!("{}: {} ", "Status".purple(), response.status());
+
                     return Poll::Ready(Ok(response));
                 } else {
                     println!("Nope")
